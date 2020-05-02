@@ -33,7 +33,7 @@ type Ebook struct {
     Chapters   []Chapter
 }
 
-func format(raw string) string {
+func ChineseFormat(raw string) string {
     utf8string, _ := simplifiedchinese.GBK.NewDecoder().String(raw)
     return strings.ReplaceAll(utf8string, "聽", "")
 }
@@ -91,12 +91,12 @@ func (book *Ebook) Crawl(url string) {
     })
 
     c.OnHTML("#maininfo", func(e *colly.HTMLElement) {
-        book.Name = format(e.DOM.Find("h1").Text())
+        book.Name = ChineseFormat(e.DOM.Find("h1").Text())
         book.Cover, _ = e.DOM.Find("#fmimg > img").Attr("src")
-        book.Author = format(e.DOM.Find("#info > p:nth-child(2)").Text())
-        book.Status = format(e.DOM.Find("#info > p:nth-child(3)").Text())
-        book.LastUpdate = format(e.DOM.Find("#info > p:nth-child(4)").Text())
-        book.Desc = format(e.DOM.Find("#intro > p:nth-child(1)").Text())
+        book.Author = ChineseFormat(e.DOM.Find("#info > p:nth-child(2)").Text())
+        book.Status = ChineseFormat(e.DOM.Find("#info > p:nth-child(3)").Text())
+        book.LastUpdate = ChineseFormat(e.DOM.Find("#info > p:nth-child(4)").Text())
+        book.Desc = ChineseFormat(e.DOM.Find("#intro > p:nth-child(1)").Text())
     })
 
     c.OnHTML("a[href]", func(e *colly.HTMLElement) {
@@ -111,9 +111,9 @@ func (book *Ebook) Crawl(url string) {
 
     c.OnHTML("div.content_read", func(e *colly.HTMLElement) {
         var chapter Chapter
-        chapter.Title = format(e.DOM.Find("h1").Text())
+        chapter.Title = ChineseFormat(e.DOM.Find("h1").Text())
         rawBody, _ := e.DOM.Find("#content").Html()
-        chapter.Body = format(rawBody)
+        chapter.Body = ChineseFormat(rawBody)
         urlSuffix := regexp.MustCompile(`\d+.html`).Find([]byte(e.Request.URL.Path))
         chapter.index, _ = strconv.Atoi(strings.ReplaceAll(string(urlSuffix), ".html", ""))
         book.Chapters = append(book.Chapters, chapter)
