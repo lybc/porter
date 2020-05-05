@@ -7,8 +7,6 @@ import (
     "github.com/urfave/cli"
     "golang.org/x/text/encoding/simplifiedchinese"
     "log"
-    "net"
-    "net/http"
     "os"
     "regexp"
     "sort"
@@ -17,6 +15,11 @@ import (
     "time"
 )
 
+func ChineseFormat(raw string) string {
+    utf8string, _ := simplifiedchinese.GBK.NewDecoder().String(raw)
+    return strings.ReplaceAll(utf8string, "聽", "")
+}
+
 type Chapter struct {
     Title string
     Body  string
@@ -24,6 +27,7 @@ type Chapter struct {
 }
 
 type Ebook struct {
+    Collector  *colly.Collector
     Name       string
     Cover      string
     Author     string
@@ -31,11 +35,6 @@ type Ebook struct {
     LastUpdate string
     Desc       string
     Chapters   []Chapter
-}
-
-func ChineseFormat(raw string) string {
-    utf8string, _ := simplifiedchinese.GBK.NewDecoder().String(raw)
-    return strings.ReplaceAll(utf8string, "聽", "")
 }
 
 func (book *Ebook) Len() int {
@@ -59,38 +58,8 @@ func (book *Ebook) PrintMeta() {
 }
 
 func (book *Ebook) Crawl(url string) {
-    c := colly.NewCollector(
-        colly.MaxDepth(2),
-        colly.Async(true),
-    )
-
-    c.WithTransport(&http.Transport{
-        Proxy: http.ProxyFromEnvironment,
-        DialContext: (&net.Dialer{
-            Timeout:   30 * time.Second,
-            KeepAlive: 30 * time.Second,
-        }).DialContext,
-        MaxIdleConns:          100,
-        IdleConnTimeout:       90 * time.Second,
-        TLSHandshakeTimeout:   10 * time.Second,
-        ExpectContinueTimeout: 1 * time.Second,
-    })
-
-    c.Limit(&colly.LimitRule{
-        DomainGlob:  "*www.zwdu.com/*",
-        Parallelism: 5,
-        RandomDelay: 2 * time.Second,
-    })
-
-    c.OnRequest(func(r *colly.Request) {
-        fmt.Println("Visiting", r.URL)
-    })
-
-    c.OnError(func(_ *colly.Response, err error) {
-        log.Println("Something went wrong:", err)
-    })
-
-    c.OnHTML("#maininfo", func(e *colly.HTMLElement) {
+    // 抓取书籍元数据
+    book.Collector.OnHTML("#maininfo", func(e *colly.HTMLElement) {
         book.Name = ChineseFormat(e.DOM.Find("h1").Text())
         book.Cover, _ = e.DOM.Find("#fmimg > img").Attr("src")
         book.Author = ChineseFormat(e.DOM.Find("#info > p:nth-child(2)").Text())
@@ -99,17 +68,19 @@ func (book *Ebook) Crawl(url string) {
         book.Desc = ChineseFormat(e.DOM.Find("#intro > p:nth-child(1)").Text())
     })
 
-    c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+    // 抓取章节具体链接
+    book.Collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
         //e.Request.Visit(e.Attr("href"))
         href := e.Attr("href")
         if match, _ := regexp.Match(`/book/\d+/\d+.html`, []byte(href)); match {
             fmt.Printf("开始抓取: %s\n", href)
             fullUrl := e.Request.AbsoluteURL(href)
-            c.Visit(fullUrl)
+            book.Collector.Visit(fullUrl)
         }
     })
 
-    c.OnHTML("div.content_read", func(e *colly.HTMLElement) {
+    // 抓取正文
+    book.Collector.OnHTML("div.content_read", func(e *colly.HTMLElement) {
         var chapter Chapter
         chapter.Title = ChineseFormat(e.DOM.Find("h1").Text())
         rawBody, _ := e.DOM.Find("#content").Html()
@@ -119,8 +90,8 @@ func (book *Ebook) Crawl(url string) {
         book.Chapters = append(book.Chapters, chapter)
     })
 
-    c.Visit(url)
-    c.Wait()
+    book.Collector.Visit(url)
+    book.Collector.Wait()
 }
 
 func (book *Ebook) CreateEpub(path string) {
@@ -131,7 +102,7 @@ func (book *Ebook) CreateEpub(path string) {
     e.SetTitle(book.Name)
     e.SetCover(book.Cover, "")
     for _, element := range book.Chapters {
-        body := "<h1>" + element.Title + "</h1>" + "<br/><br/>" + element.Body
+        body := "<h1>" + element.Title + "</h1>" + "<br/>" + element.Body
         //fmt.Println(body)
         e.AddSection(body, element.Title, "", "")
     }
@@ -139,10 +110,33 @@ func (book *Ebook) CreateEpub(path string) {
     e.Write(filename)
 }
 
+func NewEbook() *Ebook {
+    c := colly.NewCollector(
+        colly.MaxDepth(2),
+        colly.Async(true),
+    )
+
+    c.OnRequest(func(r *colly.Request) {
+        fmt.Println("Visiting", r.URL)
+    })
+
+    c.OnError(func(_ *colly.Response, err error) {
+        log.Println("Something went wrong:", err)
+    })
+
+    book := &Ebook{
+        Collector: c,
+    }
+
+    return book
+}
+
 func main() {
     app := &cli.App{
         Name:  "zwdu",
         Usage: "抓取八一中文网小说转换成epub",
+        Author: "lybc",
+        Email: "yibocheng.li@gmail.com",
         Flags: []cli.Flag{
             cli.StringFlag{
                 Name:     "start",
@@ -154,12 +148,32 @@ func main() {
                 Usage:    "文件输出路径",
                 Required: true,
             },
+            cli.IntFlag{
+                Name:     "concurrent",
+                Usage:    "并发数量",
+                Required: false,
+                Value:    2,
+            },
+            cli.IntFlag{
+                Name:     "delay",
+                Usage:    "随机延迟秒数",
+                Required: false,
+                Value:    2,
+            },
         },
         Action: func(c *cli.Context) error {
             output := c.String("output")
             start := c.String("start")
+            concurrent := c.Int("concurrent")
+            delay := c.Int("delay")
 
-            ebook := &Ebook{}
+            ebook := NewEbook()
+            ebook.Collector.Limit(&colly.LimitRule{
+                DomainGlob:  "*www.zwdu.com/*",
+                Parallelism: concurrent,
+                RandomDelay: time.Duration(delay) * time.Second,
+            })
+
             ebook.Crawl(start)
             ebook.PrintMeta()
             ebook.CreateEpub(output)
