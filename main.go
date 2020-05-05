@@ -11,8 +11,8 @@ import (
 
 func main() {
     app := &cli.App{
-        Name:   "super downloader",
-        Usage:  "下载网络上各种媒体信息",
+        Name:   "porter",
+        Usage:  "我不生产资源，我只是资源的搬运工",
         Author: "lybc",
         Email:  "yibocheng.li@gmail.com",
         Commands: []cli.Command{
