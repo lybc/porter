@@ -1,4 +1,4 @@
-module zwdu-doawloader-go
+module porter
 
 go 1.14
 

@@ -1,9 +1,10 @@
-package drivers
+package commands
 
 import (
     "fmt"
     "github.com/bmaupin/go-epub"
     "github.com/gocolly/colly"
+    "github.com/urfave/cli"
     "golang.org/x/text/encoding/simplifiedchinese"
     "log"
     "regexp"
@@ -11,6 +12,42 @@ import (
     "strconv"
     "strings"
 )
+
+var ebookCmd = cli.Command{
+    Name: "ebook",
+    Usage: "下载电子书",
+    Action: func(c *cli.Context) error {
+        url := c.Args().Get(0)
+        output := c.Args().Get(1)
+        downloadZwdu(url, output)
+        return nil
+    },
+}
+
+func init() {
+    RootCmd.Commands = append(RootCmd.Commands, ebookCmd)
+}
+
+func downloadZwdu(resourceUrl string, outputPath string) {
+    c := colly.NewCollector(
+        colly.MaxDepth(2),
+        colly.Async(true),
+    )
+
+    c.OnRequest(func(r *colly.Request) {
+        fmt.Println("Visiting", r.URL)
+    })
+
+    c.OnError(func(_ *colly.Response, err error) {
+        log.Println("Something went wrong:", err)
+    })
+
+    book := &ZwduBook{
+        Collector: c,
+    }
+
+    book.Download(resourceUrl, outputPath)
+}
 
 type ZwduBook struct {
     Collector  *colly.Collector
@@ -105,28 +142,6 @@ func (book *ZwduBook) CreateEpub(path string) {
     filename := path + "/" + book.Name + ".epub"
     e.Write(filename)
 }
-
-func NewEbook() *ZwduBook {
-    c := colly.NewCollector(
-        colly.MaxDepth(2),
-        colly.Async(true),
-    )
-
-    c.OnRequest(func(r *colly.Request) {
-        fmt.Println("Visiting", r.URL)
-    })
-
-    c.OnError(func(_ *colly.Response, err error) {
-        log.Println("Something went wrong:", err)
-    })
-
-    book := &ZwduBook{
-        Collector: c,
-    }
-
-    return book
-}
-
 
 func ChineseFormat(raw string) string {
     utf8string, _ := simplifiedchinese.GBK.NewDecoder().String(raw)
