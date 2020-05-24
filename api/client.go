@@ -3,10 +3,8 @@ package api
 import (
     "encoding/json"
     "fmt"
-    "io"
     "io/ioutil"
     "net/http"
-    "os"
 )
 
 func NewClient() *Client {
@@ -18,24 +16,6 @@ func NewClient() *Client {
 
 type Client struct {
     http *http.Client
-}
-
-// 下载文件
-func (c Client) Download(url string, target string) error {
-    file, err := os.Create(target)
-    if err != nil {
-        return err
-    }
-
-    defer file.Close()
-
-    resp, err := http.Get(url)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-    io.Copy(file, resp.Body)
-    return nil
 }
 
 func (c Client) Get(url string, data interface{}) error {

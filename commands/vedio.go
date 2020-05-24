@@ -3,11 +3,9 @@ package commands
 import (
     "fmt"
     "github.com/urfave/cli"
-    "io"
-    "net/http"
     "net/url"
-    "os"
     "porter/api"
+    "porter/utils"
     "strings"
 )
 
@@ -32,7 +30,6 @@ func getBvid(resourceUrl string) (string, error) {
     }
 
     path := strings.Split(u.Path, "/")
-    fmt.Println(path)
     return path[len(path) - 1], nil
 }
 
@@ -55,15 +52,13 @@ func downloadBilibili(c *cli.Context) error {
     }
     durl := playUrl.Data.Durl[0]
 
-    req, _ := http.NewRequest(http.MethodGet, durl.URL, nil)
-    req.Header.Set("Accept", "*/*")
-    req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-    req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.84 Safari/537.36")
-    req.Header.Set("Referer", url)
-    resp, _ := http.DefaultClient.Do(req)
-    defer resp.Body.Close()
-    file, _ := os.Create(c.Args().Get(1))
-    defer file.Close()
-    io.Copy(file, resp.Body)
+    headers := map[string]string{
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.5",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.84 Safari/537.36",
+        "Referer": url,
+    }
+
+    utils.DownloadFile(c.Args().Get(1), durl.URL, headers)
     return nil
 }

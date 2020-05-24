@@ -6,7 +6,7 @@ import (
     "github.com/urfave/cli"
     "net/http"
     "net/url"
-    "porter/api"
+    "porter/utils"
 )
 
 const (
@@ -46,9 +46,8 @@ func downloadNetease(resourceUrl string, outputPath string) bool {
     mp3Url := fmt.Sprintf(MusicMediaUrl, musicId)
     name := musicInfo.Get("name").MustString()
     singer := musicInfo.Get("artists").GetIndex(0).Get("name").MustString()
-    fmt.Println("正在下载：", name, singer)
 
     destPath := outputPath + "/" + fmt.Sprintf("%s(%s).mp3", name, singer)
-    api.NewClient().Download(mp3Url, destPath)
+    utils.DownloadFile(destPath, mp3Url, nil)
     return true
 }
