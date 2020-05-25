@@ -58,6 +58,7 @@ func DownloadFile(filepath string, url string, headers map[string]string) error 
         return err
     }
     defer resp.Body.Close()
+    fmt.Println("开始下载：" + filepath)
 
     // Create our progress reporter and pass it to be used alongside our writer
     counter := &WriteCounter{}

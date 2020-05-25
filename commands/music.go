@@ -2,15 +2,13 @@ package commands
 
 import (
     "fmt"
-    "github.com/bitly/go-simplejson"
     "github.com/urfave/cli"
-    "net/http"
     "net/url"
+    "porter/api"
     "porter/utils"
 )
 
 const (
-    MusicInfoUrl  = "http://music.163.com/api/song/detail/?id=%s&ids=[%s]&csrf_token="
     MusicMediaUrl = "http://music.163.com/song/media/outer/url?id=%s.mp3"
 )
 
@@ -19,8 +17,7 @@ var musicCmd = cli.Command{
     Usage: "下载音乐",
     Action: func(c *cli.Context) error {
         url := c.Args().Get(0)
-        output := c.Args().Get(1)
-        downloadNetease(url, output)
+        downloadNetease(url)
         return nil
     },
 }
@@ -29,25 +26,23 @@ func init() {
     RootCmd.Commands = append(RootCmd.Commands, musicCmd)
 }
 
-func downloadNetease(resourceUrl string, outputPath string) bool {
+func downloadNetease(resourceUrl string) error {
     u, err := url.Parse(resourceUrl)
     if err != nil {
         panic(err)
     }
     musicId := u.Query().Get("id")
-    response, _ := http.Get(fmt.Sprintf(MusicInfoUrl, musicId, musicId))
-    if response.StatusCode != http.StatusOK {
-        panic("无法获取到歌曲信息")
+    songs := api.GetSongsInfo([]string{musicId})
+
+    if songs.Code != 200 {
+        return fmt.Errorf("获取歌曲信息失败")
     }
 
-    defer response.Body.Close()
-    musicInfo, _ := simplejson.NewFromReader(response.Body)
-    musicInfo = musicInfo.Get("songs").GetIndex(0)
-    mp3Url := fmt.Sprintf(MusicMediaUrl, musicId)
-    name := musicInfo.Get("name").MustString()
-    singer := musicInfo.Get("artists").GetIndex(0).Get("name").MustString()
+    for _, song := range songs.Songs {
+        name := fmt.Sprintf("%s.mp3", song.Name)
+        mp3Url := fmt.Sprintf(MusicMediaUrl, musicId)
+        utils.DownloadFile(name, mp3Url, nil)
+    }
 
-    destPath := outputPath + "/" + fmt.Sprintf("%s(%s).mp3", name, singer)
-    utils.DownloadFile(destPath, mp3Url, nil)
-    return true
+    return nil
 }
