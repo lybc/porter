@@ -6,6 +6,7 @@ import (
     "net/url"
     "porter/api"
     "porter/utils"
+    "regexp"
 )
 
 const (
@@ -17,7 +18,15 @@ var musicCmd = cli.Command{
     Usage: "下载音乐",
     Action: func(c *cli.Context) error {
         url := c.Args().Get(0)
-        downloadNetease(url)
+        matchSingle, _ := regexp.MatchString("https://music.163.com/song/*", url)
+        if matchSingle {
+            return downloadSingle(url)
+        }
+        //https://music.163.com/playlist?id=38196761&userid=44216499
+        matchPlaylist, _ := regexp.MatchString("https://music.163.com/playlist/*", url)
+        if matchPlaylist {
+            return downloadPlayList(url)
+        }
         return nil
     },
 }
@@ -26,7 +35,17 @@ func init() {
     RootCmd.Commands = append(RootCmd.Commands, musicCmd)
 }
 
-func downloadNetease(resourceUrl string) error {
+func downloadPlayList(resourceUrl string) error {
+    u, err := url.Parse(resourceUrl)
+    if err != nil {
+        panic(err)
+    }
+    //playlistId := u.Query().Get("id")
+
+    return nil
+}
+
+func downloadSingle(resourceUrl string) error {
     u, err := url.Parse(resourceUrl)
     if err != nil {
         panic(err)
