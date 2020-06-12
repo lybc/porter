@@ -7,6 +7,7 @@ import (
     "porter/api"
     "porter/utils"
     "regexp"
+    "sync"
 )
 
 const (
@@ -18,14 +19,12 @@ var musicCmd = cli.Command{
     Usage: "下载音乐",
     Action: func(c *cli.Context) error {
         url := c.Args().Get(0)
-        matchSingle, _ := regexp.MatchString("https://music.163.com/song/*", url)
-        if matchSingle {
+        if matchSingle, err := regexp.MatchString("https://music.163.com/song/*", url); matchSingle && err == nil {
             return downloadSingle(url)
-        }
-        //https://music.163.com/playlist?id=38196761&userid=44216499
-        matchPlaylist, _ := regexp.MatchString("https://music.163.com/playlist/*", url)
-        if matchPlaylist {
+        } else if matchPlaylist, err := regexp.MatchString("https://music.163.com/playlist/*", url); matchPlaylist && err == nil {
             return downloadPlayList(url)
+        } else if matchRadio, err := regexp.MatchString("https://music.163.com/radio/*", url); matchRadio && err == nil {
+            return downloadRadio(url)
         }
         return nil
     },
@@ -35,11 +34,37 @@ func init() {
     RootCmd.Commands = append(RootCmd.Commands, musicCmd)
 }
 
-func downloadPlayList(resourceUrl string) error {
-    u, err := url.Parse(resourceUrl)
-    if err != nil {
-        panic(err)
+func getIdByUrl(resourceUrl string) string {
+    if u, err := url.Parse(resourceUrl); err == nil {
+        return u.Query().Get("id")
     }
+    return ""
+}
+
+func downloadRadio(resourceUrl string) error {
+    id := getIdByUrl(resourceUrl)
+    radio := api.GetRadio(id)
+    fmt.Println(len(radio.Programs))
+    wg := sync.WaitGroup{}
+    for _, p := range radio.Programs {
+        wg.Add(1)
+        go func(s api.Song, wg *sync.WaitGroup) {
+            err := utils.DownloadFile(s.GetFileName(), s.GetStreamUrl(), nil)
+            if err != nil {
+                fmt.Println(err)
+            }
+            wg.Done()
+        }(p.MainSong, &wg)
+    }
+    wg.Wait()
+    return nil
+}
+
+func downloadPlayList(resourceUrl string) error {
+    //u, err := url.Parse(resourceUrl)
+    //if err != nil {
+    //    panic(err)
+    //}
     //playlistId := u.Query().Get("id")
 
     return nil
