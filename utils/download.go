@@ -2,79 +2,84 @@ package utils
 
 import (
     "fmt"
-    "github.com/dustin/go-humanize"
     "io"
     "net/http"
     "os"
-    "strings"
+    "sync"
 )
 
-type WriteCounter struct {
-    Total uint64
+type Resource struct {
+    Filename string
+    Url string
 }
 
-func (wc *WriteCounter) Write(p []byte) (int, error) {
-    n := len(p)
-    wc.Total += uint64(n)
-    wc.PrintProgress()
-    return n, nil
+type Downloader struct {
+    wg *sync.WaitGroup
+    pool chan *Resource
+    HttpClient http.Client
+    TargetDir string
+    Resources []Resource
 }
 
-func (wc WriteCounter) PrintProgress() {
-    // Clear the line by using a character return to go back to the start and remove
-    // the remaining characters by filling it with spaces
-    fmt.Printf("\r%s", strings.Repeat(" ", 35))
-
-    // Return again and print current status of download
-    // We use the humanize package to print the bytes in a meaningful way (e.g. 10 MB)
-    fmt.Printf("\rDownloading... %s complete", humanize.Bytes(wc.Total))
+func NewDownloader(targetDir string, concurrent int) *Downloader {
+    return &Downloader{
+        wg: &sync.WaitGroup{},
+        pool: make(chan *Resource, concurrent),
+        TargetDir: targetDir,
+    }
 }
 
-// DownloadFile will download a url to a local file. It's efficient because it will
-// write as it downloads and not load the whole file into memory. We pass an io.TeeReader
-// into Copy() to report progress on the download.
-func DownloadFile(filepath string, url string, headers map[string]string) error {
+func (d *Downloader) AppendResource(filename, url string) {
+    d.Resources = append(d.Resources, Resource{
+        Filename: filename,
+        Url:      url,
+    })
+}
 
-    // Create the file, but give it a tmp file extension, this means we won't overwrite a
-    // file until it's downloaded, but we'll remove the tmp extension once downloaded.
-    out, err := os.Create(filepath + ".tmp")
+func (d *Downloader) Download(resource Resource) error {
+    defer d.wg.Done()
+    d.pool <- &resource
+    fmt.Println(resource.Filename, resource.Url)
+    finalPath := d.TargetDir + "/" + resource.Filename
+    target, err := os.Create(finalPath + ".tmp")
+
     if err != nil {
         return err
     }
 
-    // Get the data
-    req, err := http.NewRequest(http.MethodGet, url, nil)
+    req, err := http.NewRequest(http.MethodGet, resource.Url, nil)
     if err != nil {
         return err
     }
-    if headers != nil {
-        for k, v := range headers {
-            req.Header.Add(k, v)
-        }
-    }
+    //if headers != nil {
+    //    for k, v := range headers {
+    //        req.Header.Add(k, v)
+    //    }
+    //}
     resp, err := http.DefaultClient.Do(req)
     if err != nil {
-        out.Close()
+        target.Close()
         return err
     }
     defer resp.Body.Close()
-    fmt.Println("开始下载：" + filepath)
-
-    // Create our progress reporter and pass it to be used alongside our writer
-    counter := &WriteCounter{}
-    if _, err = io.Copy(out, io.TeeReader(resp.Body, counter)); err != nil {
-        out.Close()
+    if _, err := io.Copy(target, resp.Body); err != nil {
+        target.Close();
         return err
     }
 
-    // The progress use the same line so print a new line once it's finished downloading
-    fmt.Print("\n")
-
-    // Close the file without defer so it can happen before Rename()
-    out.Close()
-
-    if err = os.Rename(filepath+".tmp", filepath); err != nil {
+    target.Close()
+    if err := os.Rename(finalPath + ".tmp", finalPath); err != nil {
         return err
     }
+    <- d.pool
+    return nil
+}
+
+func (d *Downloader) Start() error {
+    for _, resource := range d.Resources {
+        d.wg.Add(1)
+        go d.Download(resource)
+    }
+    d.wg.Wait()
     return nil
 }

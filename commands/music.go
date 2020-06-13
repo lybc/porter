@@ -7,7 +7,6 @@ import (
     "porter/api"
     "porter/utils"
     "regexp"
-    "sync"
 )
 
 const (
@@ -44,19 +43,25 @@ func getIdByUrl(resourceUrl string) string {
 func downloadRadio(resourceUrl string) error {
     id := getIdByUrl(resourceUrl)
     radio := api.GetRadio(id)
-    fmt.Println(len(radio.Programs))
-    wg := sync.WaitGroup{}
+    downloader := utils.NewDownloader("./", 3)
     for _, p := range radio.Programs {
-        wg.Add(1)
-        go func(s api.Song, wg *sync.WaitGroup) {
-            err := utils.DownloadFile(s.GetFileName(), s.GetStreamUrl(), nil)
-            if err != nil {
-                fmt.Println(err)
-            }
-            wg.Done()
-        }(p.MainSong, &wg)
+        downloader.AppendResource(p.MainSong.GetFileName(), p.MainSong.GetStreamUrl())
     }
-    wg.Wait()
+
+    downloader.Start()
+    //fmt.Println(downloader.Resources)
+    //wg := sync.WaitGroup{}
+    //for _, p := range radio.Programs {
+    //    wg.Add(1)
+    //    go func(s api.Song, wg *sync.WaitGroup) {
+    //        err := utils.DownloadFile(s.GetFileName(), s.GetStreamUrl(), nil)
+    //        if err != nil {
+    //            fmt.Println(err)
+    //        }
+    //        wg.Done()
+    //    }(p.MainSong, &wg)
+    //}
+    //wg.Wait()
     return nil
 }
 
