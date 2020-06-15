@@ -14,8 +14,15 @@ const (
 )
 
 var musicCmd = cli.Command{
-    Name: "music",
+    Name:  "music",
     Usage: "下载音乐",
+    Flags: []cli.Flag{
+        &cli.StringFlag{
+            Name:  "output",
+            Usage: "下载文件输出路径",
+            Value: "./",
+        },
+    },
     Action: func(c *cli.Context) error {
         url := c.Args().Get(0)
         if matchSingle, err := regexp.MatchString("https://music.163.com/song/*", url); matchSingle && err == nil {
@@ -23,7 +30,7 @@ var musicCmd = cli.Command{
         } else if matchPlaylist, err := regexp.MatchString("https://music.163.com/playlist/*", url); matchPlaylist && err == nil {
             return downloadPlayList(url)
         } else if matchRadio, err := regexp.MatchString("https://music.163.com/radio/*", url); matchRadio && err == nil {
-            return downloadRadio(url)
+            return downloadRadio(url, c)
         }
         return nil
     },
@@ -40,28 +47,15 @@ func getIdByUrl(resourceUrl string) string {
     return ""
 }
 
-func downloadRadio(resourceUrl string) error {
+func downloadRadio(resourceUrl string, c *cli.Context) error {
     id := getIdByUrl(resourceUrl)
     radio := api.GetRadio(id)
-    downloader := utils.NewDownloader("./", 3)
+    fmt.Println(c.String("output"))
+    downloader := utils.NewDownloader(c.String("output"))
     for _, p := range radio.Programs {
         downloader.AppendResource(p.MainSong.GetFileName(), p.MainSong.GetStreamUrl())
     }
-
     downloader.Start()
-    //fmt.Println(downloader.Resources)
-    //wg := sync.WaitGroup{}
-    //for _, p := range radio.Programs {
-    //    wg.Add(1)
-    //    go func(s api.Song, wg *sync.WaitGroup) {
-    //        err := utils.DownloadFile(s.GetFileName(), s.GetStreamUrl(), nil)
-    //        if err != nil {
-    //            fmt.Println(err)
-    //        }
-    //        wg.Done()
-    //    }(p.MainSong, &wg)
-    //}
-    //wg.Wait()
     return nil
 }
 
@@ -76,22 +70,22 @@ func downloadPlayList(resourceUrl string) error {
 }
 
 func downloadSingle(resourceUrl string) error {
-    u, err := url.Parse(resourceUrl)
-    if err != nil {
-        panic(err)
-    }
-    musicId := u.Query().Get("id")
-    songs := api.GetSongsInfo([]string{musicId})
-
-    if songs.Code != 200 {
-        return fmt.Errorf("获取歌曲信息失败")
-    }
-
-    for _, song := range songs.Songs {
-        name := fmt.Sprintf("%s.mp3", song.Name)
-        mp3Url := fmt.Sprintf(MusicMediaUrl, musicId)
-        utils.DownloadFile(name, mp3Url, nil)
-    }
+    //u, err := url.Parse(resourceUrl)
+    //if err != nil {
+    //    panic(err)
+    //}
+    //musicId := u.Query().Get("id")
+    //songs := api.GetSongsInfo([]string{musicId})
+    //
+    //if songs.Code != 200 {
+    //    return fmt.Errorf("获取歌曲信息失败")
+    //}
+    //
+    //for _, song := range songs.Songs {
+    //    name := fmt.Sprintf("%s.mp3", song.Name)
+    //    mp3Url := fmt.Sprintf(MusicMediaUrl, musicId)
+    //    utils.DownloadFile(name, mp3Url, nil)
+    //}
 
     return nil
 }
