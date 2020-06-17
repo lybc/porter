@@ -5,7 +5,6 @@ import (
     "github.com/urfave/cli"
     "net/url"
     "porter/api"
-    "porter/utils"
     "regexp"
 )
 
@@ -48,24 +47,33 @@ func getIdByUrl(resourceUrl string) string {
 }
 
 func downloadRadio(resourceUrl string, c *cli.Context) error {
-    id := getIdByUrl(resourceUrl)
-    radio := api.GetRadio(id)
-    fmt.Println(c.String("output"))
-    downloader := utils.NewDownloader(c.String("output"))
-    for _, p := range radio.Programs {
-        downloader.AppendResource(p.MainSong.GetFileName(), p.MainSong.GetStreamUrl())
-    }
-    downloader.Start()
+    //id := getIdByUrl(resourceUrl)
+    //radio := api.GetRadio(id)
+    //fmt.Println(c.String("output"))
+    //downloader := utils.NewDownloader(c.String("output"))
+    //for _, p := range radio.Programs {
+    //    downloader.AppendResource(p.MainSong.GetFileName(), p.MainSong.GetStreamUrl())
+    //}
+    //downloader.Start()
     return nil
 }
 
 func downloadPlayList(resourceUrl string) error {
-    //u, err := url.Parse(resourceUrl)
-    //if err != nil {
-    //    panic(err)
-    //}
-    //playlistId := u.Query().Get("id")
+    u, err := url.Parse(resourceUrl)
+    if err != nil {
+        return err
+    }
+    playlistId := u.Query().Get("id")
+    api := api.Netease{}
+    playList := api.GetPlayListDetail(playlistId)
+    if playList.Code != 200 {
+        return fmt.Errorf("获取网易云歌单详情失败")
+    }
+    fmt.Println(playList.Playlist.TrackCount)
 
+    for _, song := range playList.Playlist.Tracks {
+        fmt.Println(song.Name)
+    }
     return nil
 }
 

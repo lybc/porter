@@ -1,121 +1,229 @@
 package api
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"math/big"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"strings"
 )
 
-type Artist struct {
-	Name        string        `json:"name"`
-	ID          int           `json:"id"`
-	PicID       int           `json:"picId"`
-	Img1V1ID    int           `json:"img1v1Id"`
-	BriefDesc   string        `json:"briefDesc"`
-	PicURL      string        `json:"picUrl"`
-	Img1V1URL   string        `json:"img1v1Url"`
-	AlbumSize   int           `json:"albumSize"`
-	Alias       []interface{} `json:"alias"`
-	Trans       string        `json:"trans"`
-	MusicSize   int           `json:"musicSize"`
-	TopicPerson int           `json:"topicPerson"`
+const (
+	NONCE   = "0CoJUm6Qyw8W8jud"
+	IV      = "0102030405060708"
+	KEYS    = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	PUB_KEY = "010001"
+	MODULUS = "00e0b509f6259df8642dbc35662901477df22677ec152b5ff68ace615bb7b725152b3ab17a876aea8a5aa76d2e417629ec4ee341f56135fccf695280104e0312ecbda92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d3e82047b97ddef52741d546b8e289dc6935b3ece0462db0a22b8e7"
+)
+
+func addRSAPadding(encText string, modulus string) string {
+	ml := len(modulus)
+	for i := 0; ml > 0 && modulus[i:i+1] == "0"; i++ {
+		ml--
+	}
+	num := ml - len(encText)
+	prefix := ""
+	for i := 0; i < num; i++ {
+		prefix += "0"
+	}
+	return prefix + encText
 }
 
-type Album struct {
-	Name            string        `json:"name"`
-	ID              int           `json:"id"`
-	Type            string        `json:"type"`
-	Size            int           `json:"size"`
-	PicID           int64         `json:"picId"`
-	BlurPicURL      string        `json:"blurPicUrl"`
-	CompanyID       int           `json:"companyId"`
-	Pic             int64         `json:"pic"`
-	PicURL          string        `json:"picUrl"`
-	PublishTime     int64         `json:"publishTime"`
-	Description     string        `json:"description"`
-	Tags            string        `json:"tags"`
-	Company         string        `json:"company"`
-	BriefDesc       string        `json:"briefDesc"`
-	Artist          Artist        `json:"artist"`
-	Songs           []interface{} `json:"songs"`
-	Alias           []interface{} `json:"alias"`
-	Status          int           `json:"status"`
-	CopyrightID     int           `json:"copyrightId"`
-	CommentThreadID string        `json:"commentThreadId"`
-	Artists         []Artist      `json:"artists"`
-	SubType         string        `json:"subType"`
-	TransName       interface{}   `json:"transName"`
-	Mark            int           `json:"mark"`
-	PicIDStr        string        `json:"picId_str"`
+type ParamsCrypto struct {
+	raw    string
+	Cipher struct {
+		Param     string
+		EncSecKey string
+	}
 }
 
-type Music struct {
-	Name        interface{} `json:"name"`
-	ID          int         `json:"id"`
-	Size        int         `json:"size"`
-	Extension   string      `json:"extension"`
-	Sr          int         `json:"sr"`
-	DfsID       int         `json:"dfsId"`
-	Bitrate     int         `json:"bitrate"`
-	PlayTime    int         `json:"playTime"`
-	VolumeDelta int         `json:"volumeDelta"`
+// rsa加密
+func (c *ParamsCrypto) rsaEncrypt(secKey string, pubKey string, modulus string) string {
+	// 倒序 key
+	rKey := ""
+	for i := len(secKey) - 1; i >= 0; i-- {
+		rKey += secKey[i : i+1]
+	}
+	// 将 key 转 ascii 编码 然后转成 16 进制字符串
+	hexRKey := ""
+	for _, char := range []rune(rKey) {
+		hexRKey += fmt.Sprintf("%x", int(char))
+	}
+	// 将 16进制 的 三个参数 转为10进制的 bigint
+	bigRKey, _ := big.NewInt(0).SetString(hexRKey, 16)
+	bigPubKey, _ := big.NewInt(0).SetString(pubKey, 16)
+	bigModulus, _ := big.NewInt(0).SetString(modulus, 16)
+	// 执行幂乘取模运算得到最终的bigint结果
+	bigRs := bigRKey.Exp(bigRKey, bigPubKey, bigModulus)
+	// 将结果转为 16进制字符串
+	hexRs := fmt.Sprintf("%x", bigRs)
+	// 可能存在不满256位的情况，要在前面补0补满256位
+	return addRSAPadding(hexRs, modulus)
+}
+
+// 创建一个随机字符串作为secret key
+func (c *ParamsCrypto) createSecretKey(size int) string {
+	random := make([]byte, size)
+	for i := range random {
+		random[i] = KEYS[rand.Intn(len(KEYS))]
+	}
+	return string(random)
+}
+
+func (c *ParamsCrypto) Encrypt() {
+	sk := c.createSecretKey(16)
+	c.Cipher.Param = c.aesEncrypt(c.aesEncrypt(c.raw, NONCE), sk)
+	c.Cipher.EncSecKey = c.rsaEncrypt(sk, PUB_KEY, MODULUS)
+}
+
+func (c *ParamsCrypto) aesEncrypt(v string, sk string) string {
+	block, err := aes.NewCipher([]byte(sk))
+	if err != nil {
+		log.Fatalln(err)
+		return ""
+	}
+
+	valueBytes := []byte(v)
+	blockSize := block.BlockSize()
+	padding := blockSize - len(valueBytes)%blockSize
+	paddingText := bytes.Repeat([]byte{byte(padding)}, padding)
+	valueBytes = append(valueBytes, paddingText...)
+
+	blockMode := cipher.NewCBCEncrypter(block, []byte(IV))
+	cipherText := make([]byte, len(valueBytes))
+	blockMode.CryptBlocks(cipherText, valueBytes)
+
+	return base64.StdEncoding.EncodeToString(cipherText)
+}
+
+type Netease struct{}
+
+// 发送HTTP请求到网易云服务器
+func (n *Netease) request(httpMethod string, url string, body io.Reader) ([]byte, error) {
+	request, err := http.NewRequest(httpMethod, url, body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Referer", "http://music.163.com")
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("Accept-Language", "zh-CN,zh;q=0.8,gl;q=0.6,zh-TW;q=0.4")
+	request.Header.Set("Cookie", "appver=2.0.2")
+	// todo 随机UA
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36")
+	resp, err := http.DefaultClient.Do(request)
+	defer resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		log.Fatal("http 请求错误")
+		return nil, fmt.Errorf("http request error, get: %d", resp.StatusCode)
+	}
+	responseBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return responseBody, nil
+}
+
+// 获取歌单详情接口
+func (n *Netease) GetPlayListDetail(id string) *PlayListPayload {
+	c := ParamsCrypto{raw: fmt.Sprintf(`{"id": %s, "s": "8", "n": 10000, "csrf_token": ""}`, id)}
+	c.Encrypt()
+	params := url.Values{}
+	params.Set("params", c.Cipher.Param)
+	params.Set("encSecKey", c.Cipher.EncSecKey)
+	responseBody, err := n.request(http.MethodPost, "https://music.163.com/weapi/v3/playlist/detail", strings.NewReader(params.Encode()))
+	if err != nil {
+		panic(err)
+	}
+	var payload = PlayListPayload{}
+	json.Unmarshal(responseBody, &payload)
+	return &payload
 }
 
 type Song struct {
-	Name            string        `json:"name"`
-	ID              int           `json:"id"`
-	Position        int           `json:"position"`
-	Alias           []interface{} `json:"alias"`
-	Status          int           `json:"status"`
-	Fee             int           `json:"fee"`
-	CopyrightID     int           `json:"copyrightId"`
-	Disc            string        `json:"disc"`
+	Name string `json:"name"`
+	ID   int    `json:"id"`
+	Pst  int    `json:"pst"`
+	T    int    `json:"t"`
+	Ar   []struct {
+		ID    int           `json:"id"`
+		Name  string        `json:"name"`
+		Tns   []interface{} `json:"tns"`
+		Alias []interface{} `json:"alias"`
+	} `json:"ar"`
+	Alia []interface{} `json:"alia"`
+	Pop  float64       `json:"pop"`
+	St   int           `json:"st"`
+	Rt   string        `json:"rt"`
+	Fee  int           `json:"fee"`
+	V    int           `json:"v"`
+	Crbt interface{}   `json:"crbt"`
+	Cf   string        `json:"cf"`
+	Dt   int           `json:"dt"`
+	H    struct {
+		Br   int     `json:"br"`
+		Fid  int     `json:"fid"`
+		Size int     `json:"size"`
+		Vd   float64 `json:"vd"`
+	} `json:"h"`
+	M struct {
+		Br   int     `json:"br"`
+		Fid  int     `json:"fid"`
+		Size int     `json:"size"`
+		Vd   float64 `json:"vd"`
+	} `json:"m"`
+	L struct {
+		Br   int     `json:"br"`
+		Fid  int     `json:"fid"`
+		Size int     `json:"size"`
+		Vd   float64 `json:"vd"`
+	} `json:"l"`
+	A               interface{}   `json:"a"`
+	Cd              string        `json:"cd"`
 	No              int           `json:"no"`
-	Artists         Artist        `json:"artists"`
-	Album           Album         `json:"album"`
-	Starred         bool          `json:"starred"`
-	Popularity      float64       `json:"popularity"`
-	Score           int           `json:"score"`
-	StarredNum      int           `json:"starredNum"`
-	Duration        int           `json:"duration"`
-	PlayedNum       int           `json:"playedNum"`
-	DayPlays        int           `json:"dayPlays"`
-	HearTime        int           `json:"hearTime"`
-	Ringtone        interface{}   `json:"ringtone"`
-	Crbt            interface{}   `json:"crbt"`
-	Audition        interface{}   `json:"audition"`
-	CopyFrom        string        `json:"copyFrom"`
-	CommentThreadID string        `json:"commentThreadId"`
 	RtURL           interface{}   `json:"rtUrl"`
 	Ftype           int           `json:"ftype"`
 	RtUrls          []interface{} `json:"rtUrls"`
+	DjID            int           `json:"djId"`
 	Copyright       int           `json:"copyright"`
-	TransName       interface{}   `json:"transName"`
-	Sign            interface{}   `json:"sign"`
+	SID             int           `json:"s_id"`
 	Mark            int           `json:"mark"`
+	OriginCoverType int           `json:"originCoverType"`
 	NoCopyrightRcmd interface{}   `json:"noCopyrightRcmd"`
-	HMusic          Music         `json:"hMusic"`
-	MMusic          Music         `json:"mMusic"`
-	LMusic          Music         `json:"lMusic"`
-	BMusic          Music         `json:"bMusic"`
-	Mvid            int           `json:"mvid"`
-	Mp3URL          interface{}   `json:"mp3Url"`
 	Rtype           int           `json:"rtype"`
 	Rurl            interface{}   `json:"rurl"`
+	Mst             int           `json:"mst"`
+	Cp              int           `json:"cp"`
+	Mv              int           `json:"mv"`
+	PublishTime     int64         `json:"publishTime"`
+	Al              struct {
+		ID     int           `json:"id"`
+		Name   string        `json:"name"`
+		PicURL string        `json:"picUrl"`
+		Tns    []interface{} `json:"tns"`
+		Pic    int64         `json:"pic"`
+	} `json:"al,omitempty"`
 }
 
-type Songs struct {
-	Songs      []Song   `json:"songs"`
-	Equalizers struct{} `json:"equalizers"`
-	Code       int      `json:"code"`
-}
-
-type RadioPayload struct {
-	Count    int `json:"count"`
-	Code     int `json:"code"`
-	Programs []struct {
-		MainSong Song   `json:"mainSong"`
-		Songs    string `json:"songs"`
-		Dj       struct {
+type PlayListPayload struct {
+	Code          int         `json:"code"`
+	RelatedVideos interface{} `json:"relatedVideos"`
+	Playlist      struct {
+		Subscribers []interface{} `json:"subscribers"`
+		Subscribed  bool          `json:"subscribed"`
+		Creator     struct {
 			DefaultAvatar      bool        `json:"defaultAvatar"`
 			Province           int         `json:"province"`
 			AuthStatus         int         `json:"authStatus"`
@@ -143,93 +251,65 @@ type RadioPayload struct {
 			RemarkName         interface{} `json:"remarkName"`
 			AvatarImgIDStr     string      `json:"avatarImgIdStr"`
 			BackgroundImgIDStr string      `json:"backgroundImgIdStr"`
-			AvatarImgIDStr2    string      `json:"avatarImgId_str"`
-			Brand              string      `json:"brand"`
-		}
-		BlurCoverUrl string `json:"blueCoverUrl"`
-		Radio        struct {
-			Dj                    interface{} `json:"dj"`
-			Category              string      `json:"category"`
-			Buyed                 bool        `json:"buyed"`
-			Price                 int         `json:"price"`
-			OriginalPrice         int         `json:"originalPrice"`
-			DiscountPrice         interface{} `json:"discountPrice"`
-			PurchaseCount         int         `json:"purchaseCount"`
-			LastProgramName       interface{} `json:"lastProgramName"`
-			Videos                interface{} `json:"videos"`
-			Finished              bool        `json:"finished"`
-			UnderShelf            bool        `json:"underShelf"`
-			LiveInfo              interface{} `json:"liveInfo"`
-			CategoryID            int         `json:"categoryId"`
-			CreateTime            int64       `json:"createTime"`
-			LastProgramID         int         `json:"lastProgramId"`
-			FeeScope              int         `json:"feeScope"`
-			PicID                 int64       `json:"picId"`
-			ProgramCount          int         `json:"programCount"`
-			SubCount              int         `json:"subCount"`
-			LastProgramCreateTime int64       `json:"lastProgramCreateTime"`
-			RadioFeeType          int         `json:"radioFeeType"`
-			PicURL                string      `json:"picUrl"`
-			Desc                  string      `json:"desc"`
-			Name                  string      `json:"name"`
-			ID                    int         `json:"id"`
-		}
-		Alg                      interface{}   `json:"alg"`
-		AuditStatus              int64         `json:"auditStatus"`
-		BdAuditStatus            int64         `json:"bdAuditStatus"`
-		Buyed                    bool          `json:"buyed"`
-		CanReward                bool          `json:"canReward"`
-		Channels                 []interface{} `json:"channels"`
-		CommentCount             int64         `json:"commentCount"`
-		CommentThreadID          string        `json:"commentThreadId"`
-		CoverURL                 string        `json:"coverUrl"`
-		CreateTime               int64         `json:"createTime"`
-		Description              string        `json:"description"`
-		Duration                 int64         `json:"duration"`
-		FeeScope                 int64         `json:"feeScope"`
-		H5Links                  interface{}   `json:"h5Links"`
-		ID                       int64         `json:"id"`
-		IsPublish                bool          `json:"isPublish"`
-		LikedCount               int64         `json:"likedCount"`
-		ListenerCount            int64         `json:"listenerCount"`
-		LiveInfo                 interface{}   `json:"liveInfo"`
-		MainTrackID              int64         `json:"mainTrackId"`
-		Name                     string        `json:"name"`
-		ProgramDesc              interface{}   `json:"programDesc"`
-		ProgramFeeType           int64         `json:"programFeeType"`
-		PubStatus                int64         `json:"pubStatus"`
-		Reward                   bool          `json:"reward"`
-		Score                    int64         `json:"score"`
-		SerialNum                int64         `json:"serialNum"`
-		ShareCount               int64         `json:"shareCount"`
-		SmallLanguageAuditStatus int64         `json:"smallLanguageAuditStatus"`
-		Subscribed               bool          `json:"subscribed"`
-		SubscribedCount          int64         `json:"subscribedCount"`
-		TitbitImages             interface{}   `json:"titbitImages"`
-		Titbits                  interface{}   `json:"titbits"`
-		TrackCount               int64         `json:"trackCount"`
-		VideoInfo                interface{}   `json:"videoInfo"`
-	}
-}
-
-func (s Song) GetStreamUrl() string {
-	return fmt.Sprintf("http://music.163.com/song/media/outer/url?id=%d.mp3", s.ID)
-}
-
-func (s Song) GetFileName() string {
-	return fmt.Sprintf("%s.mp3", s.Name)
-}
-
-func GetSongsInfo(ids []string) Songs {
-	var s = Songs{}
-	tmp, _ := json.Marshal(ids)
-	NewClient().Get("http://music.163.com/api/song/detail/?ids="+string(tmp), &s)
-	return s
-}
-
-func GetRadio(id string) RadioPayload {
-	var payload = RadioPayload{}
-	url := fmt.Sprintf("http://music.163.com/api/dj/program/byradio/?radioId=%s&ids=[%s]&csrf_token=", id, id)
-	NewClient().Get(url, &payload)
-	return payload
+		} `json:"creator"`
+		Tracks []Song `json:"tracks"`
+		TrackIds []struct {
+			ID  int         `json:"id"`
+			V   int         `json:"v"`
+			Alg interface{} `json:"alg"`
+		} `json:"trackIds"`
+		UpdateFrequency       interface{}   `json:"updateFrequency"`
+		BackgroundCoverID     int           `json:"backgroundCoverId"`
+		BackgroundCoverURL    interface{}   `json:"backgroundCoverUrl"`
+		TitleImage            int           `json:"titleImage"`
+		TitleImageURL         interface{}   `json:"titleImageUrl"`
+		EnglishTitle          interface{}   `json:"englishTitle"`
+		OpRecommend           bool          `json:"opRecommend"`
+		CoverImgURL           string        `json:"coverImgUrl"`
+		SpecialType           int           `json:"specialType"`
+		Tags                  []interface{} `json:"tags"`
+		SubscribedCount       int           `json:"subscribedCount"`
+		CloudTrackCount       int           `json:"cloudTrackCount"`
+		AdType                int           `json:"adType"`
+		Privacy               int           `json:"privacy"`
+		TrackUpdateTime       int64         `json:"trackUpdateTime"`
+		NewImported           bool          `json:"newImported"`
+		CoverImgID            int64         `json:"coverImgId"`
+		UpdateTime            int64         `json:"updateTime"`
+		CommentThreadID       string        `json:"commentThreadId"`
+		TrackCount            int           `json:"trackCount"`
+		TrackNumberUpdateTime int64         `json:"trackNumberUpdateTime"`
+		PlayCount             int           `json:"playCount"`
+		Description           interface{}   `json:"description"`
+		Ordered               bool          `json:"ordered"`
+		Status                int           `json:"status"`
+		UserID                int           `json:"userId"`
+		CreateTime            int64         `json:"createTime"`
+		HighQuality           bool          `json:"highQuality"`
+		Name                  string        `json:"name"`
+		ID                    int           `json:"id"`
+		ShareCount            int           `json:"shareCount"`
+		CoverImgIDStr         string        `json:"coverImgId_str"`
+		CommentCount          int           `json:"commentCount"`
+	} `json:"playlist"`
+	Urls       interface{} `json:"urls"`
+	Privileges []struct {
+		ID            int  `json:"id"`
+		Fee           int  `json:"fee"`
+		Payed         int  `json:"payed"`
+		St            int  `json:"st"`
+		Pl            int  `json:"pl"`
+		Dl            int  `json:"dl"`
+		Sp            int  `json:"sp"`
+		Cp            int  `json:"cp"`
+		Subp          int  `json:"subp"`
+		Cs            bool `json:"cs"`
+		Maxbr         int  `json:"maxbr"`
+		Fl            int  `json:"fl"`
+		Toast         bool `json:"toast"`
+		Flag          int  `json:"flag"`
+		PreSell       bool `json:"preSell"`
+		PlayMaxbr     int  `json:"playMaxbr"`
+		DownloadMaxbr int  `json:"downloadMaxbr"`
+	} `json:"privileges"`
 }
