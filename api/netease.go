@@ -40,8 +40,8 @@ func addRSAPadding(encText string, modulus string) string {
 
 // 网易云接口加密
 type ParamsCrypto struct {
-	Plaint string               // 明文
-	Cipher struct {             // 密文
+	Plaint string   // 明文
+	Cipher struct { // 密文
 		Param     string
 		EncSecKey string
 	}
@@ -167,7 +167,10 @@ func (n *Netease) GetSongDetail(ids []string, withSongUrl bool) *SongsDetail {
 	}
 	cByte, _ := json.Marshal(c)
 	// 接口实际需要的参数
-	paramsStruct := struct {Ids string `json:"ids"`; C string `json:"c"`} {
+	paramsStruct := struct {
+		Ids string `json:"ids"`
+		C   string `json:"c"`
+	}{
 		Ids: string(idsByte),
 		C:   string(cByte),
 	}
@@ -193,9 +196,12 @@ func (n *Netease) GetSongDetail(ids []string, withSongUrl bool) *SongsDetail {
 // todo
 func (n *Netease) GetSongsUrl(ids []int) {
 	idsByte, _ := json.Marshal(ids)
-	paramsStruct := struct {Ids string `json:"ids"`; Br int `json:"br"`} {
+	paramsStruct := struct {
+		Ids string `json:"ids"`
+		Br  int    `json:"br"`
+	}{
 		Ids: string(idsByte),
-		Br: 999000,
+		Br:  999000,
 	}
 
 	pByte, err := json.Marshal(paramsStruct)
@@ -217,9 +223,9 @@ func (n *Netease) GetSongsUrl(ids []int) {
 
 // 歌曲详情返回结构
 type SongsDetail struct {
-	Songs []Song `json:"songs"`
+	Songs      []Song      `json:"songs"`
 	Privileges []Privilege `json:"privileges"`
-	Code  int `json:"code"`
+	Code       int         `json:"code"`
 }
 
 // 歌曲结构
@@ -385,6 +391,6 @@ type PlayListPayload struct {
 		CoverImgIDStr         string        `json:"coverImgId_str"`
 		CommentCount          int           `json:"commentCount"`
 	} `json:"playlist"`
-	Urls          interface{} `json:"urls"`
-	Privileges    []Privilege `json:"privileges"`
+	Urls       interface{} `json:"urls"`
+	Privileges []Privilege `json:"privileges"`
 }

@@ -1,15 +1,15 @@
 package main
 
 import (
-    "log"
-    "os"
-    "porter/commands"
+	"log"
+	"os"
+	"porter/commands"
 )
 
 func main() {
-    err := commands.RootCmd.Run(os.Args)
+	err := commands.RootCmd.Run(os.Args)
 
-    if err != nil {
-        log.Fatal(err)
-    }
+	if err != nil {
+		log.Fatal(err)
+	}
 }
