@@ -38,9 +38,10 @@ func addRSAPadding(encText string, modulus string) string {
 	return prefix + encText
 }
 
+// 网易云接口加密
 type ParamsCrypto struct {
-	raw    string
-	Cipher struct {
+	Plaint string               // 明文
+	Cipher struct {             // 密文
 		Param     string
 		EncSecKey string
 	}
@@ -81,7 +82,7 @@ func (c *ParamsCrypto) createSecretKey(size int) string {
 
 func (c *ParamsCrypto) Encrypt() {
 	sk := c.createSecretKey(16)
-	c.Cipher.Param = c.aesEncrypt(c.aesEncrypt(c.raw, NONCE), sk)
+	c.Cipher.Param = c.aesEncrypt(c.aesEncrypt(c.Plaint, NONCE), sk)
 	c.Cipher.EncSecKey = c.rsaEncrypt(sk, PUB_KEY, MODULUS)
 }
 
@@ -138,7 +139,7 @@ func (n *Netease) request(httpMethod string, url string, body io.Reader) ([]byte
 
 // 获取歌单详情接口
 func (n *Netease) GetPlayListDetail(id string) *PlayListPayload {
-	c := ParamsCrypto{raw: fmt.Sprintf(`{"id": %s, "s": "8", "n": 10000, "csrf_token": ""}`, id)}
+	c := ParamsCrypto{Plaint: fmt.Sprintf(`{"id": %s, "s": "8", "n": 10000, "csrf_token": ""}`, id)}
 	c.Encrypt()
 	params := url.Values{}
 	params.Set("params", c.Cipher.Param)
@@ -152,6 +153,76 @@ func (n *Netease) GetPlayListDetail(id string) *PlayListPayload {
 	return &payload
 }
 
+// 获取歌曲详情
+func (n *Netease) GetSongDetail(ids []string, withSongUrl bool) *SongsDetail {
+	// 组合参数，参数为json字符串
+	idsByte, _ := json.Marshal(ids)
+	var c []struct {
+		Id string `json:"id"`
+	}
+	for _, id := range ids {
+		c = append(c, struct {
+			Id string `json:"id"`
+		}{Id: id})
+	}
+	cByte, _ := json.Marshal(c)
+	// 接口实际需要的参数
+	paramsStruct := struct {Ids string `json:"ids"`; C string `json:"c"`} {
+		Ids: string(idsByte),
+		C:   string(cByte),
+	}
+
+	paramRaw, err := json.Marshal(paramsStruct)
+	if err != nil {
+		panic("json encode error")
+	}
+	crypto := ParamsCrypto{Plaint: string(paramRaw)}
+	crypto.Encrypt()
+	params := url.Values{}
+	params.Set("params", crypto.Cipher.Param)
+	params.Set("encSecKey", crypto.Cipher.EncSecKey)
+	responseBody, err := n.request(http.MethodPost, "https://music.163.com/weapi/v3/song/detail", strings.NewReader(params.Encode()))
+	if err != nil {
+		panic(err)
+	}
+	songsDetail := SongsDetail{}
+	json.Unmarshal(responseBody, &songsDetail)
+	return &songsDetail
+}
+
+// todo
+func (n *Netease) GetSongsUrl(ids []int) {
+	idsByte, _ := json.Marshal(ids)
+	paramsStruct := struct {Ids string `json:"ids"`; Br int `json:"br"`} {
+		Ids: string(idsByte),
+		Br: 999000,
+	}
+
+	pByte, err := json.Marshal(paramsStruct)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(pByte))
+	crypto := ParamsCrypto{Plaint: string(pByte)}
+	crypto.Encrypt()
+	params := url.Values{}
+	params.Set("params", crypto.Cipher.Param)
+	params.Set("encSecKey", crypto.Cipher.EncSecKey)
+	responseBody, err := n.request(http.MethodPost, "https://music.163.com/api/song/enhance/player/url", strings.NewReader(params.Encode()))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(responseBody))
+}
+
+// 歌曲详情返回结构
+type SongsDetail struct {
+	Songs []Song `json:"songs"`
+	Privileges []Privilege `json:"privileges"`
+	Code  int `json:"code"`
+}
+
+// 歌曲结构
 type Song struct {
 	Name string `json:"name"`
 	ID   int    `json:"id"`
@@ -217,6 +288,28 @@ type Song struct {
 	} `json:"al,omitempty"`
 }
 
+// 特权结构
+type Privilege struct {
+	ID            int  `json:"id"`
+	Fee           int  `json:"fee"`
+	Payed         int  `json:"payed"`
+	St            int  `json:"st"`
+	Pl            int  `json:"pl"`
+	Dl            int  `json:"dl"`
+	Sp            int  `json:"sp"`
+	Cp            int  `json:"cp"`
+	Subp          int  `json:"subp"`
+	Cs            bool `json:"cs"`
+	Maxbr         int  `json:"maxbr"`
+	Fl            int  `json:"fl"`
+	Toast         bool `json:"toast"`
+	Flag          int  `json:"flag"`
+	PreSell       bool `json:"preSell"`
+	PlayMaxbr     int  `json:"playMaxbr"`
+	DownloadMaxbr int  `json:"downloadMaxbr"`
+}
+
+// 歌单详情返回结构
 type PlayListPayload struct {
 	Code          int         `json:"code"`
 	RelatedVideos interface{} `json:"relatedVideos"`
@@ -252,7 +345,7 @@ type PlayListPayload struct {
 			AvatarImgIDStr     string      `json:"avatarImgIdStr"`
 			BackgroundImgIDStr string      `json:"backgroundImgIdStr"`
 		} `json:"creator"`
-		Tracks []Song `json:"tracks"`
+		Tracks   []Song `json:"tracks"`
 		TrackIds []struct {
 			ID  int         `json:"id"`
 			V   int         `json:"v"`
@@ -292,24 +385,6 @@ type PlayListPayload struct {
 		CoverImgIDStr         string        `json:"coverImgId_str"`
 		CommentCount          int           `json:"commentCount"`
 	} `json:"playlist"`
-	Urls       interface{} `json:"urls"`
-	Privileges []struct {
-		ID            int  `json:"id"`
-		Fee           int  `json:"fee"`
-		Payed         int  `json:"payed"`
-		St            int  `json:"st"`
-		Pl            int  `json:"pl"`
-		Dl            int  `json:"dl"`
-		Sp            int  `json:"sp"`
-		Cp            int  `json:"cp"`
-		Subp          int  `json:"subp"`
-		Cs            bool `json:"cs"`
-		Maxbr         int  `json:"maxbr"`
-		Fl            int  `json:"fl"`
-		Toast         bool `json:"toast"`
-		Flag          int  `json:"flag"`
-		PreSell       bool `json:"preSell"`
-		PlayMaxbr     int  `json:"playMaxbr"`
-		DownloadMaxbr int  `json:"downloadMaxbr"`
-	} `json:"privileges"`
+	Urls          interface{} `json:"urls"`
+	Privileges    []Privilege `json:"privileges"`
 }

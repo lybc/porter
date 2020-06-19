@@ -5,7 +5,9 @@ import (
     "github.com/urfave/cli"
     "net/url"
     "porter/api"
+    "porter/utils"
     "regexp"
+    "strconv"
 )
 
 const (
@@ -27,7 +29,7 @@ var musicCmd = cli.Command{
         if matchSingle, err := regexp.MatchString("https://music.163.com/song/*", url); matchSingle && err == nil {
             return downloadSingle(url)
         } else if matchPlaylist, err := regexp.MatchString("https://music.163.com/playlist/*", url); matchPlaylist && err == nil {
-            return downloadPlayList(url)
+            return downloadPlayList(c)
         } else if matchRadio, err := regexp.MatchString("https://music.163.com/radio/*", url); matchRadio && err == nil {
             return downloadRadio(url, c)
         }
@@ -58,11 +60,13 @@ func downloadRadio(resourceUrl string, c *cli.Context) error {
     return nil
 }
 
-func downloadPlayList(resourceUrl string) error {
-    u, err := url.Parse(resourceUrl)
+// 下载歌单的歌曲
+func downloadPlayList(ctx *cli.Context) error {
+    u, err := url.Parse(ctx.Args().Get(0))
     if err != nil {
         return err
     }
+    // 根据ID获取歌单
     playlistId := u.Query().Get("id")
     api := api.Netease{}
     playList := api.GetPlayListDetail(playlistId)
@@ -71,16 +75,29 @@ func downloadPlayList(resourceUrl string) error {
     }
     fmt.Println(playList.Playlist.TrackCount)
 
-    for _, song := range playList.Playlist.Tracks {
-        fmt.Println(song.Name)
+    var trackIds []string
+    for _, track := range playList.Playlist.TrackIds {
+        fmt.Println(track.ID)
+        trackIds = append(trackIds, strconv.Itoa(track.ID))
     }
+    // 根据歌曲ID获取歌曲详情，如果无需打印歌曲信息可省略
+    songsDetail := api.GetSongDetail(trackIds, false)
+    if songsDetail.Code != 200 {
+        return fmt.Errorf("获取歌曲详情失败")
+    }
+
+    downloader := utils.NewDownloader(ctx.String("output"))
+    for _, s := range songsDetail.Songs {
+        downloader.AppendResource(s.Name + ".mp3", fmt.Sprintf(MusicMediaUrl, strconv.Itoa(s.ID)))
+    }
+    downloader.Start()
     return nil
 }
 
 func downloadSingle(resourceUrl string) error {
     //u, err := url.Parse(resourceUrl)
     //if err != nil {
-    //    panic(err)
+    //   return err
     //}
     //musicId := u.Query().Get("id")
     //songs := api.GetSongsInfo([]string{musicId})

@@ -16,10 +16,20 @@ import (
 var ebookCmd = cli.Command{
     Name: "ebook",
     Usage: "下载电子书",
+    Flags: []cli.Flag{
+        &cli.StringFlag{
+            Name:  "output",
+            Usage: "下载文件输出路径",
+            Value: "./",
+        },
+        &cli.IntFlag{
+            Name:  "concurrent",
+            Usage: "并发数量",
+            Value: 3,
+        },
+    },
     Action: func(c *cli.Context) error {
-        url := c.Args().Get(0)
-        output := c.Args().Get(1)
-        downloadZwdu(url, output)
+        downloadZwdu(c)
         return nil
     },
 }
@@ -28,12 +38,12 @@ func init() {
     RootCmd.Commands = append(RootCmd.Commands, ebookCmd)
 }
 
-func downloadZwdu(resourceUrl string, outputPath string) {
+func downloadZwdu(ctx *cli.Context) {
     c := colly.NewCollector(
         colly.MaxDepth(2),
         colly.Async(true),
     )
-
+    c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: ctx.Int("concurrent")})
     c.OnRequest(func(r *colly.Request) {
         fmt.Println("Visiting", r.URL)
     })
@@ -46,7 +56,7 @@ func downloadZwdu(resourceUrl string, outputPath string) {
         Collector: c,
     }
 
-    book.Download(resourceUrl, outputPath)
+    book.Download(ctx.Args().Get(0), ctx.String("output"))
 }
 
 type ZwduBook struct {
