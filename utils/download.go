@@ -57,7 +57,6 @@ func (d *Downloader) Download(resource Resource, progress *mpb.Progress) error {
 	if err != nil {
 		return err
 	}
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		target.Close()
