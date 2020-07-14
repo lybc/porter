@@ -96,7 +96,7 @@ func (d *Downloader) Download(resource Resource, progress *mpb.Progress) error {
 
 func (d *Downloader) Start() error {
 	d.pool = make(chan *Resource, d.Concurrent)
-	fmt.Println("开始下载，当前并发：", d.Concurrent)
+	fmt.Println(fmt.Sprintf("开始下载，当前并发：%d, 共下载文件: %d 个", d.Concurrent, len(d.Resources)))
 	p := mpb.New(mpb.WithWaitGroup(d.wg))
 	for _, resource := range d.Resources {
 		d.wg.Add(1)

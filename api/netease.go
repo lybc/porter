@@ -193,33 +193,33 @@ func (n *Netease) GetSongDetail(ids []string, withSongUrl bool) *SongsDetail {
 	return &songsDetail
 }
 
-// todo
-func (n *Netease) GetSongsUrl(ids []int) {
-	idsByte, _ := json.Marshal(ids)
-	paramsStruct := struct {
-		Ids string `json:"ids"`
-		Br  int    `json:"br"`
-	}{
-		Ids: string(idsByte),
-		Br:  999000,
-	}
-
-	pByte, err := json.Marshal(paramsStruct)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(pByte))
-	crypto := ParamsCrypto{Plaint: string(pByte)}
-	crypto.Encrypt()
-	params := url.Values{}
-	params.Set("params", crypto.Cipher.Param)
-	params.Set("encSecKey", crypto.Cipher.EncSecKey)
-	responseBody, err := n.request(http.MethodPost, "https://music.163.com/api/song/enhance/player/url", strings.NewReader(params.Encode()))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(responseBody))
-}
+//// todo
+//func (n *Netease) GetSongsUrl(ids []int) {
+//	idsByte, _ := json.Marshal(ids)
+//	paramsStruct := struct {
+//		Ids string `json:"ids"`
+//		Br  int    `json:"br"`
+//	}{
+//		Ids: string(idsByte),
+//		Br:  999000,
+//	}
+//
+//	pByte, err := json.Marshal(paramsStruct)
+//	if err != nil {
+//		panic(err)
+//	}
+//	fmt.Println(string(pByte))
+//	crypto := ParamsCrypto{Plaint: string(pByte)}
+//	crypto.Encrypt()
+//	params := url.Values{}
+//	params.Set("params", crypto.Cipher.Param)
+//	params.Set("encSecKey", crypto.Cipher.EncSecKey)
+//	responseBody, err := n.request(http.MethodPost, "https://music.163.com/api/song/enhance/player/url", strings.NewReader(params.Encode()))
+//	if err != nil {
+//		panic(err)
+//	}
+//	fmt.Println(string(responseBody))
+//}
 
 // 歌曲详情返回结构
 type SongsDetail struct {
